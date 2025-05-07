@@ -1,0 +1,11 @@
+python-dotenv
+langchain>=0.2.0
+langchain-community
+langchain-huggingface>=0.0.4
+faiss-cpu
+sentence-transformers
+unstructured[md]
+python-magic-bin
+python-telegram-bot==20.3
+requests
+pypdf
