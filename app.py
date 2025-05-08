@@ -2,10 +2,11 @@ from telegram import Update, ForceReply
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import requests
 import os
+import time
+from datetime import datetime
 from dotenv import load_dotenv
 from rag_processor import RAGProcessor
 from config import MAX_CONTEXT_LENGTH, DEEPSEEK_API_URL, DEEPSEEK_MODEL
-
 load_dotenv()
 
 
@@ -13,13 +14,34 @@ class AIChatBot:
     def __init__(self):
         self.rag = RAGProcessor()
         self.rag.load_and_process_documents()
-        self.user_contexts = {}  # Хранит контексты диалогов по user_id
+        self.user_contexts = {}
+        self.log_file = "logs.txt"  # Перенесено из _init_logging
+        self._init_logging()  # Явный вызов метода инициализации
+
+    def _init_logging(self):
+        """Инициализация системы логирования"""
+        if not os.path.exists(self.log_file):
+            with open(self.log_file, "w", encoding='utf-8') as f:
+                f.write("Timestamp|User ID|Duration|Status|Request|Response\n")
+
+    async def _log_request(self, user_id: int, start_time: float, status: str, request: dict, response: str = ""):
+        """Логирование запроса"""
+        log_entry = (
+            f"{datetime.now().isoformat()}|"
+            f"{user_id}|"
+            f"{time.time() - start_time:.2f}|"
+            f"{status}|"
+            f"{str(request)[:500].replace('\n', ' ')}|"
+            f"{str(response)[:500].replace('\n', ' ')}\n"
+        )
+        with open(self.log_file, "a", encoding='utf-8') as f:
+            f.write(log_entry)
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Отправляет сообщение при получении команды /start"""
         user = update.effective_user
         await update.message.reply_html(
-            f"Здравствуйте, {user.mention_html()}! Я ваш юридический помощник. Я могу помочь вам с ответом по следующим законам: Гражданский кодекс, Кодекс РФ об административных нарушениях, Семейный кодекс, Трудовой кодекс, Уголовный кодекс. Чем могу помочь?",
+            f"""Здравствуйте, {user.mention_html()}!\nЯ ваш юридический помощник.\nЯ могу проконсультировать Вас по следующим законам:\nГражданский кодекс\nКодекс РФ об административных нарушениях\nСемейный кодекс\nТрудовой кодекс\nУголовный кодекс.\n\nЧем могу помочь?""",
             reply_markup=ForceReply(selective=True),
         )
 
@@ -46,7 +68,7 @@ class AIChatBot:
             self.user_contexts[user_id] = context
 
     async def _call_deepseek(self, user_id: int, message: str) -> str:
-        """Вызывает Deepseek API через прямые HTTP-запросы"""
+        """Вызывает Deepseek API с ретраями и логированием"""
         relevant_docs = self.rag.search_relevant_documents(message)
         docs_context = "\n\n".join(relevant_docs)
 
@@ -55,15 +77,14 @@ class AIChatBot:
                     for msg in context]
         messages.append({"role": "user", "content": message})
 
-        system_prompt = """
-            Вы высококвалифицированный юридический помощник Yur-bot. Правила:
+        system_prompt = """ 
+        Вы высококвалифицированный юридический помощник Yur-bot. Правила:
             1. Отвечайте строго по российскому законодательству
             2. Указывайте конкретные статьи законов
             3. Пишите профессиональным, но понятным языком
             4. Добавляйте в конце: "Мои ответы не заменяют необходимость консультироваться с профессиональным юристом!"
-            
-            Контекст: {context}""".format(context=docs_context if docs_context else "нет дополнительного контекста")  # Ваш промпт без изменений
 
+            Контекст: {context}""".format(context=docs_context if docs_context else "нет дополнительного контекста")  # Ваш промпт
         messages.insert(0, {"role": "system", "content": system_prompt})
 
         headers = {
@@ -78,20 +99,65 @@ class AIChatBot:
             "max_tokens": 3000
         }
 
-        try:
-            response = requests.post(
-                DEEPSEEK_API_URL,
-                headers=headers,
-                json=payload,
-                timeout=30
-            )
-            response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
-        except requests.exceptions.RequestException as e:
-            print(f"Deepseek API error: {str(e)}")
-            return "Ошибка соединения с сервисом"
-        except KeyError:
-            return "Ошибка обработки ответа"
+        max_retries = 3
+        retry_delay = 5
+        last_error = "Неизвестная ошибка"
+
+        for attempt in range(max_retries):
+            start_time = time.time()
+            try:
+                response = requests.post(
+                    DEEPSEEK_API_URL,
+                    headers=headers,
+                    json=payload,
+                    timeout=30
+                )
+                response_time = time.time() - start_time
+
+                if response.status_code == 200:
+                    result = response.json().get("choices", [{}])[0].get(
+                        "message", {}).get("content", "")
+                    await self._log_request(
+                        user_id,
+                        start_time,
+                        "SUCCESS",
+                        # Логируем только часть данных
+                        {"messages": messages[:3], "model": DEEPSEEK_MODEL},
+                        result  # Логируем только начало ответа
+                    )
+                    return result
+
+                last_error = f"HTTP {response.status_code}"
+                await self._log_request(
+                    user_id,
+                    start_time,
+                    f"ERROR_{response.status_code}",
+                    {"messages": messages[:3], "model": DEEPSEEK_MODEL},
+                    response.text
+                )
+
+            except requests.exceptions.Timeout:
+                last_error = "Timeout"
+                await self._log_request(
+                    user_id,
+                    start_time,
+                    "TIMEOUT",
+                    {"messages": messages[:3], "model": DEEPSEEK_MODEL}
+                )
+            except Exception as e:
+                last_error = str(e)
+                await self._log_request(
+                    user_id,
+                    start_time,
+                    "CONNECTION_ERROR",
+                    {"messages": messages[:3], "model": DEEPSEEK_MODEL},
+                    str(e)
+                )
+
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+
+        return f"Ошибка сервиса: {last_error}. Попробуйте позже."
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обрабатывает текстовые сообщения"""

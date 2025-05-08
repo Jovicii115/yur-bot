@@ -10,7 +10,11 @@ from config import DATA_DIR, CHUNK_SIZE, CHUNK_OVERLAP, EMBEDDINGS_MODEL, VECTOR
 class RAGProcessor:
     def __init__(self):
         # Инициализация с новой версией HuggingFaceEmbeddings
-        self.embeddings = HuggingFaceEmbeddings(model_name=EMBEDDINGS_MODEL)
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name=EMBEDDINGS_MODEL,
+            model_kwargs={'device': 'cpu'},  # или 'cuda'
+            encode_kwargs={'normalize_embeddings': True}  # Улучшает качество
+        )
         self.vector_db = None
 
     def _ensure_vector_db_dir(self):
