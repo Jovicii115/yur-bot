@@ -15,7 +15,7 @@ DEEPSEEK_MODEL = "deepseek-chat"  # Или "deepseek-coder"
 # Настройки RAG
 CHUNK_SIZE = 1000  # Размер чанков для разделения документов
 CHUNK_OVERLAP = 200  # Перекрытие между чанками
-EMBEDDINGS_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"  # Модель для эмбеддингов
+EMBEDDINGS_MODEL = "all-MiniLM-L12-v2"  # Модель для эмбеддингов
 VECTOR_DB_PATH = BASE_DIR / "vector_db"  # Путь к векторной БД
 
 # Настройки контекста
