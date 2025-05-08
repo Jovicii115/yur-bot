@@ -1,3 +1,4 @@
+import json
 from telegram import Update, ForceReply
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import requests
@@ -31,8 +32,9 @@ class AIChatBot:
             f"{user_id}|"
             f"{time.time() - start_time:.2f}|"
             f"{status}|"
-            f"{str(request).replace('\n', ' ')}|"
-            f"{str(response).replace('\n', ' ')}\n")
+            f"{json.dumps(request, ensure_ascii=False)[:500]}|"
+            f"{json.dumps(response, ensure_ascii=False)[:500]}\n"
+        )
 
         with open(self.log_file, "a", encoding='utf-8') as f:
             f.write(log_entry)
