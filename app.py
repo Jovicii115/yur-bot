@@ -31,9 +31,9 @@ class AIChatBot:
             f"{user_id}|"
             f"{time.time() - start_time:.2f}|"
             f"{status}|"
-            f"{str(request)[:500].replace('\n', ' ')}|"
-            f"{str(response)[:500].replace('\n', ' ')}\n"
-        )
+            f"{str(request).replace('\n', ' ')}|"
+            f"{str(response).replace('\n', ' ')}\n")
+
         with open(self.log_file, "a", encoding='utf-8') as f:
             f.write(log_entry)
 
